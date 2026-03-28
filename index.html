@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Player Pro</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --bg-secondary: #12121a;
+      --fg: #e8e8ed;
+      --muted: #6b6b7a;
+      --accent: #00ff88;
+      --accent-dim: #00cc6a;
+      --card: #1a1a24;
+      --border: #2a2a38;
+      --danger: #ff4757;
+      --warning: #ffa502;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Space Grotesk', sans-serif; background: var(--bg); color: var(--fg); min-height: 100vh; overflow-x: hidden; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .bg-atmosphere { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+    .bg-atmosphere::before {
+      content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+      background: radial-gradient(ellipse at 20% 20%, rgba(0, 255, 136, 0.08) 0%, transparent 50%),
+                  radial-gradient(ellipse at 80% 80%, rgba(0, 200, 100, 0.05) 0%, transparent 50%),
+                  radial-gradient(ellipse at 50% 50%, rgba(30, 30, 50, 0.5) 0%, transparent 70%);
+      animation: bgFloat 20s ease-in-out infinite;
+    }
+    @keyframes bgFloat {
+      0%, 100% { transform: translate(0, 0) rotate(0deg); }
+      33% { transform: translate(2%, 2%) rotate(1deg); }
+      66% { transform: translate(-1%, 1%) rotate(-1deg); }
+    }
+    .grid-pattern {
+      position: fixed; inset: 0; z-index: 1; pointer-events: none;
+      background-image: linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 60px 60px;
+    }
+    .video-container {
+      position: relative; background: var(--card); border-radius: 16px; overflow: hidden;
+      box-shadow: 0 0 0 1px var(--border), 0 20px 60px -20px rgba(0, 0, 0, 0.7), 0 0 100px -50px rgba(0, 255, 136, 0.15);
+      transition: box-shadow 0.3s ease;
+    }
+    .video-container:hover { box-shadow: 0 0 0 1px var(--accent), 0 20px 60px -20px rgba(0, 0, 0, 0.7), 0 0 100px -30px rgba(0, 255, 136, 0.25); }
+    .video-wrapper { position: relative; width: 100%; background: #000; display: flex; align-items: center; justify-content: center; }
+    #mainVideo { width: 100%; height: 100%; display: block; transition: filter 0.3s ease; object-fit: contain; background: #000; }
+    .controls-overlay {
+      position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, transparent 40%, transparent 60%, rgba(0,0,0,0.6) 100%);
+      opacity: 0; transition: opacity 0.3s ease; display: flex; flex-direction: column; justify-content: flex-end; padding: 16px; pointer-events: none;
+    }
+    .video-container:hover .controls-overlay, .controls-overlay.show { opacity: 1; pointer-events: auto; }
+    .center-play {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8);
+      width: 70px; height: 70px; background: rgba(0, 255, 136, 0.2); backdrop-filter: blur(20px);
+      border: 2px solid var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; opacity: 0; transition: all 0.3s ease; pointer-events: auto; z-index: 10;
+    }
+    .video-container:hover .center-play, .center-play.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    .center-play:hover { background: rgba(0, 255, 136, 0.3); transform: translate(-50%, -50%) scale(1.1); }
+    .center-play svg { width: 28px; height: 28px; fill: var(--accent); margin-left: 4px; }
+    .center-play.playing svg { margin-left: 0; }
+    .progress-container { position: relative; width: 100%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; cursor: pointer; margin-bottom: 12px; transition: height 0.2s ease; }
+    .progress-container:hover { height: 10px; }
+    .progress-bar { position: absolute; left: 0; top: 0; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-dim)); border-radius: 3px; transition: width 0.1s linear; }
+    .progress-buffer { position: absolute; left: 0; top: 0; height: 100%; background: rgba(255,255,255,0.15); border-radius: 3px; }
+    .progress-handle {
+      position: absolute; top: 50%; transform: translate(-50%, -50%) scale(0); width: 16px; height: 16px;
+      background: var(--accent); border-radius: 50%; box-shadow: 0 0 10px var(--accent); transition: transform 0.2s ease;
+    }
+    .progress-container:hover .progress-handle { transform: translate(-50%, -50%) scale(1); }
+    .loop-marker { position: absolute; top: -2px; width: 4px; height: 10px; background: var(--warning); border-radius: 2px; transition: height 0.2s ease; z-index: 5; }
+    .loop-marker:hover { height: 14px; }
+    .loop-region { position: absolute; top: 0; height: 100%; background: rgba(255, 165, 2, 0.2); border-radius: 3px; pointer-events: none; z-index: 2; }
+    .control-btn {
+      background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px; padding: 8px 12px; color: var(--fg); cursor: pointer; transition: all 0.2s ease;
+      display: flex; align-items: center; gap: 6px; font-family: inherit; font-size: 13px;
+    }
+    .control-btn:hover { background: rgba(0, 255, 136, 0.2); border-color: var(--accent); color: var(--accent); }
+    .control-btn:active { transform: scale(0.95); }
+    .control-btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+    .control-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+    .control-btn.icon-only { padding: 8px; }
+    .volume-slider { width: 70px; height: 4px; -webkit-appearance: none; background: rgba(255,255,255,0.2); border-radius: 2px; cursor: pointer; }
+    .volume-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: var(--accent); border-radius: 50%; cursor: pointer; box-shadow: 0 0 10px var(--accent); }
+    .time-display { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); white-space: nowrap; }
+    .time-display .current { color: var(--fg); }
+    .settings-panel {
+      position: absolute; bottom: 90px; right: 16px; left: 16px; max-width: 320px; max-height: 60vh; overflow-y: auto;
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px;
+      opacity: 0; visibility: hidden; transform: translateY(10px); transition: all 0.3s ease; z-index: 100; backdrop-filter: blur(20px);
+    }
+    .settings-panel.active { opacity: 1; visibility: visible; transform: translateY(0); }
+    .settings-title { font-weight: 600; font-size: 14px; margin-bottom: 12px; color: var(--accent); display: flex; align-items: center; gap: 8px; }
+    .settings-group { margin-bottom: 14px; }
+    .settings-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 8px; }
+    .settings-options { display: flex; flex-wrap: wrap; gap: 6px; }
+    .option-btn { padding: 6px 12px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; color: var(--muted); cursor: pointer; transition: all 0.2s ease; font-family: inherit; }
+    .option-btn:hover { border-color: var(--accent); color: var(--fg); }
+    .option-btn.selected { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+    .filter-slider { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .filter-slider label { width: 70px; font-size: 11px; color: var(--muted); }
+    .filter-slider input { flex: 1; height: 4px; -webkit-appearance: none; background: rgba(255,255,255,0.2); border-radius: 2px; cursor: pointer; }
+    .filter-slider input::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; background: var(--accent); border-radius: 50%; cursor: pointer; }
+    .filter-value { width: 36px; font-size: 10px; color: var(--accent); text-align: right; font-family: 'JetBrains Mono', monospace; }
+    .side-panel { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 16px; height: fit-content; }
+    .panel-title { font-weight: 600; font-size: 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .panel-title svg { color: var(--accent); }
+    .bookmark-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s ease; }
+    .bookmark-item:hover { background: rgba(0, 255, 136, 0.1); border-color: var(--accent); }
+    .bookmark-time { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--accent); }
+    .bookmark-delete { background: none; border: none; color: var(--muted); cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s ease; }
+    .bookmark-delete:hover { color: var(--danger); background: rgba(255, 71, 87, 0.1); }
+    .shortcut-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .shortcut-item:last-child { border-bottom: none; }
+    .shortcut-key { display: inline-flex; align-items: center; gap: 4px; }
+    .key { background: rgba(255,255,255,0.1); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 10px; font-family: 'JetBrains Mono', monospace; }
+    .shortcut-desc { font-size: 11px; color: var(--muted); }
+    .toast-container { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+    .toast { background: var(--card); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 16px; font-size: 12px; display: flex; align-items: center; gap: 8px; animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); }
+    .toast svg { color: var(--accent); flex-shrink: 0; }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toastOut { to { opacity: 0; transform: translateY(-20px); } }
+    .screenshot-flash { position: absolute; inset: 0; background: white; opacity: 0; pointer-events: none; animation: flash 0.3s ease; }
+    @keyframes flash { 0% { opacity: 0; } 50% { opacity: 0.8; } 100% { opacity: 0; } }
+    .loading-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 50; }
+    .loading-spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .search-section { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+    .search-input-wrapper { display: flex; gap: 8px; }
+    .search-input { background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--fg); padding: 8px 12px; border-radius: 8px; font-size: 13px; width: 250px; outline: none; transition: border-color 0.2s; }
+    .search-input:focus { border-color: var(--accent); }
+    .suggestion-chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 400px; }
+    .chip { font-size: 10px; padding: 4px 8px; background: rgba(255,255,255,0.05); border-radius: 4px; cursor: pointer; transition: all 0.2s; color: var(--muted); border: 1px solid transparent; }
+    .chip:hover { color: var(--accent); border-color: var(--accent); background: rgba(0,255,136,0.1); }
+    .controls-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+    .controls-left, .controls-right { display: flex; align-items: center; gap: 6px; }
+    .controls-left { flex-wrap: wrap; }
+    .playlist-item { display: flex; align-items: center; gap: 10px; padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s ease; }
+    .playlist-item:hover { background: rgba(0, 255, 136, 0.1); border-color: var(--accent); }
+    .playlist-item.playing { background: rgba(0, 255, 136, 0.15); border-color: var(--accent); }
+    .playlist-thumb { width: 80px; height: 45px; border-radius: 4px; background: var(--bg-secondary); display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; position: relative; }
+    .playlist-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .playlist-playing-indicator { position: absolute; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; }
+    .playlist-item.playing .playlist-playing-indicator { display: flex; }
+    .playlist-playing-indicator svg { color: var(--accent); width: 20px; height: 20px; }
+    .playlist-info { flex: 1; min-width: 0; }
+    .playlist-title { font-size: 12px; font-weight: 500; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
+    .playlist-duration { font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+    .playlist-list { max-height: 400px; overflow-y: auto; }
+    @media (max-width: 768px) {
+      .main-layout { flex-direction: column; }
+      .side-panels { flex-direction: column; }
+      .video-wrapper { min-height: 200px; }
+      .controls-overlay { padding: 12px; }
+      .control-btn { padding: 6px 10px; font-size: 12px; }
+      .control-btn span.btn-text { display: none; }
+      .volume-slider { width: 50px; }
+      .time-display { font-size: 10px; }
+      .settings-panel { left: 8px; right: 8px; max-height: 50vh; }
+      .center-play { width: 60px; height: 60px; }
+      .center-play svg { width: 24px; height: 24px; }
+      .search-input { width: 100%; }
+      .search-section { align-items: flex-start; width: 100%; mt-4; }
+      .suggestion-chips { justify-content: flex-start; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; } }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-secondary); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+    .fade-in-up { opacity: 0; transform: translateY(20px); animation: fadeInUp 0.5s ease forwards; }
+    footer { background: #020617; padding: 40px 0; text-align: center; border-top: 1px solid rgba(255,255,255,0.05); margin-bottom: 20px; }
+    @keyframes fadeInUp { to { opacity: 1; transform: translateY(0); } }
+    .delay-1 { animation-delay: 0.1s; } .delay-2 { animation-delay: 0.2s; } .delay-3 { animation-delay: 0.3s; } .delay-4 { animation-delay: 0.4s; }
+  </style>
+</head>
+<body>
+  <div class="bg-atmosphere"></div>
+  <div class="grid-pattern"></div>
+
+  <div class="relative z-10 min-h-screen p-4 md:p-6">
+    <header class="max-w-6xl mx-auto mb-6 fade-in-up">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-xl md:text-2xl font-bold tracking-tight">Video Player <span style="color: var(--accent);">Pro</span></h1>
+          <p class="text-xs md:text-sm mt-1" style="color: var(--muted);" id="fileName">Siap memutar media</p>
+        </div>
+        
+        <div class="search-section">
+          <div class="search-input-wrapper">
+            <input type="text" id="searchInput" class="search-input" placeholder="Cari musik atau video di YouTube...">
+            <button id="searchBtn" class="control-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+            </button>
+          </div>
+          <div class="suggestion-chips">
+            <span class="text-[10px] text-[var(--muted)] flex items-center">Saran:</span>
+            <div class="chip" onclick="executeSearch('Bahagia Lagi Piche Kota')">Bahagia Lagi - Piche Kota</div>
+            <div class="chip" onclick="executeSearch('Sial Mahalini')">Sial - Mahalini</div>
+            <div class="chip" onclick="executeSearch('Komang Raim Laode')">Komang - Raim Laode</div>
+            <div class="chip" onclick="executeSearch('Penjaga Hati Nadhif')">Penjaga Hati - Nadhif</div>
+            <div class="chip" onclick="executeSearch('Anggi Marito Tak Segampang Itu')">Tak Segampang Itu - Anggi</div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto">
+      <div class="main-layout flex gap-5 flex-col lg:flex-row">
+        <div class="flex-1 fade-in-up delay-1">
+          <div class="video-container" id="videoContainer">
+            <div class="video-wrapper" id="videoWrapper" style="aspect-ratio: 16/9;">
+              <video id="mainVideo" preload="metadata"></video>
+              
+              <div class="loading-overlay" id="loadingOverlay" style="display: none;">
+                <div class="loading-spinner"></div>
+              </div>
+
+              <div class="center-play visible" id="centerPlay">
+                <svg viewBox="0 0 24 24" id="centerPlayIcon">
+                  <polygon points="5,3 19,12 5,21"/>
+                </svg>
+              </div>
+
+              <div class="controls-overlay" id="controlsOverlay">
+                <div class="progress-container" id="progressContainer">
+                  <div class="progress-buffer" id="progressBuffer"></div>
+                  <div class="loop-region" id="loopRegion" style="display: none;"></div>
+                  <div class="progress-bar" id="progressBar"></div>
+                  <div class="progress-handle" id="progressHandle"></div>
+                  <div class="loop-marker" id="loopStart" style="display: none;"></div>
+                  <div class="loop-marker" id="loopEnd" style="display: none;"></div>
+                </div>
+
+                <div class="controls-row">
+                  <div class="controls-left">
+                    <button class="control-btn icon-only" id="playBtn" title="Play/Pause (Space)">
+                      <svg viewBox="0 0 24 24" fill="currentColor" id="playIcon">
+                        <polygon points="5,3 19,12 5,21"/>
+                      </svg>
+                    </button>
+                    <button class="control-btn icon-only" id="skipBackBtn" title="Skip back 10s">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 5V1L7 6l5 5V7a6 6 0 0 1 6 6 6 6 0 0 1-6 6 6 6 0 0 1-6-6H4a8 8 0 0 0 8 8 8 8 0 0 0 8-8 8 8 0 0 0-8-8z"/>
+                      </svg>
+                    </button>
+                    <button class="control-btn icon-only" id="skipForwardBtn" title="Skip forward 10s">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 5V1l5 5-5 5V7a6 6 0 0 0-6 6 6 6 0 0 0 6 6 6 6 0 0 0 6-6h2a8 8 0 0 1-8 8 8 8 0 0 1-8-8 8 8 0 0 1 8-8z"/>
+                      </svg>
+                    </button>
+                    <button class="control-btn icon-only" id="muteBtn" title="Mute (M)">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="volumeIcon">
+                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07" id="volumeWave1"/>
+                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14" id="volumeWave2"/>
+                      </svg>
+                    </button>
+                    <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.05" value="1">
+                    <div class="time-display">
+                      <span class="current" id="currentTime">0:00</span>
+                      <span> / </span>
+                      <span id="duration">0:00</span>
+                    </div>
+                  </div>
+
+                  <div class="controls-right">
+                    <button class="control-btn" id="loopBtn" title="A-B Loop (L)">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17 2l4 4-4 4"/>
+                        <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+                        <path d="M7 22l-4-4 4-4"/>
+                        <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+                      </svg>
+                      <span class="btn-text">Loop</span>
+                    </button>
+                    <button class="control-btn icon-only" id="screenshotBtn" title="Screenshot (S)">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M3 9h2a2 2 0 0 0 2-2V5"/>
+                      </svg>
+                    </button>
+                    <button class="control-btn icon-only" id="pipBtn" title="Picture in Picture">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="3" width="20" height="14" rx="2"/>
+                        <rect x="12" y="9" width="8" height="6" rx="1" fill="currentColor" opacity="0.3"/>
+                      </svg>
+                    </button>
+                    <button class="control-btn icon-only" id="fullscreenBtn" title="Fullscreen (F)">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                      </svg>
+                    </button>
+                    <button class="control-btn icon-only" id="settingsBtn" title="Settings">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-panel" id="settingsPanel">
+                <div class="settings-title">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                  </svg>
+                  Settings
+                </div>
+                <div class="settings-group">
+                  <div class="settings-label">Playback Speed</div>
+                  <div class="settings-options" id="speedOptions">
+                    <button class="option-btn" data-speed="0.5">0.5x</button>
+                    <button class="option-btn selected" data-speed="1">1x</button>
+                    <button class="option-btn" data-speed="1.5">1.5x</button>
+                    <button class="option-btn" data-speed="2">2x</button>
+                  </div>
+                </div>
+                <div class="settings-group">
+                  <div class="settings-label">Aspect Ratio</div>
+                  <div class="settings-options" id="aspectOptions">
+                    <button class="option-btn selected" data-aspect="auto">Auto</button>
+                    <button class="option-btn" data-aspect="16:9">16:9</button>
+                    <button class="option-btn" data-aspect="4:3">4:3</button>
+                    <button class="option-btn" data-aspect="1:1">1:1</button>
+                  </div>
+                </div>
+                <div class="settings-group">
+                  <div class="settings-label">Video Filters</div>
+                  <div class="filter-slider"><label>Brightness</label><input type="range" id="brightness" min="0" max="200" value="100"><span class="filter-value" id="brightnessVal">100%</span></div>
+                  <div class="filter-slider"><label>Contrast</label><input type="range" id="contrast" min="0" max="200" value="100"><span class="filter-value" id="contrastVal">100%</span></div>
+                  <div class="filter-slider"><label>Saturation</label><input type="range" id="saturation" min="0" max="200" value="100"><span class="filter-value" id="saturationVal">100%</span></div>
+                  <button id="resetFilters" class="control-btn w-full justify-center mt-2"><span>Reset Filters</span></button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="side-panels flex flex-col gap-4 lg:w-72">
+          <div class="side-panel fade-in-up delay-2">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              Hasil Pencarian
+            </div>
+            <div class="playlist-list" id="playlistList">
+              <p class="text-xs text-center py-3" style="color: var(--muted);">Lakukan pencarian untuk melihat hasil</p>
+            </div>
+          </div>
+
+          <div class="side-panel fade-in-up delay-3">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+              </svg>
+              Bookmarks
+            </div>
+            <button id="addBookmark" class="control-btn w-full justify-center mb-3">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              <span>Add Bookmark</span>
+            </button>
+            <div id="bookmarksList">
+              <p class="text-xs text-center py-3" style="color: var(--muted);">No bookmarks yet</p>
+            </div>
+          </div>
+
+          <div class="side-panel fade-in-up delay-4">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 20V10M18 20V4M6 20v-4"/>
+              </svg>
+              Video Info
+            </div>
+            <div class="space-y-2 text-xs">
+              <div class="flex justify-between"><span style="color: var(--muted);">Resolution</span><span class="mono" id="infoResolution">-</span></div>
+              <div class="flex justify-between"><span style="color: var(--muted);">Duration</span><span class="mono" id="infoDuration">-</span></div>
+              <div class="flex justify-between"><span style="color: var(--muted);">Speed</span><span class="mono" id="infoSpeed">1x</span></div>
+              <div class="flex justify-between"><span style="color: var(--muted);">Volume</span><span class="mono" id="infoVolume">100%</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+  <footer><p>&copy; 2026 DimasApriliann. All Rights Reserved.</p></footer>
+
+  <script>
+    const API_BASE = 'http://localhost:3000/api';
+    const video = document.getElementById('mainVideo');
+    const videoContainer = document.getElementById('videoContainer');
+    const videoWrapper = document.getElementById('videoWrapper');
+    const centerPlay = document.getElementById('centerPlay');
+    const centerPlayIcon = document.getElementById('centerPlayIcon');
+    const controlsOverlay = document.getElementById('controlsOverlay');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const progressBuffer = document.getElementById('progressBuffer');
+    const progressHandle = document.getElementById('progressHandle');
+    const playBtn = document.getElementById('playBtn');
+    const playIcon = document.getElementById('playIcon');
+    const muteBtn = document.getElementById('muteBtn');
+    const volumeWave1 = document.getElementById('volumeWave1');
+    const volumeWave2 = document.getElementById('volumeWave2');
+    const volumeSlider = document.getElementById('volumeSlider');
+    const currentTimeEl = document.getElementById('currentTime');
+    const durationEl = document.getElementById('duration');
+    const skipBackBtn = document.getElementById('skipBackBtn');
+    const skipForwardBtn = document.getElementById('skipForwardBtn');
+    const loopBtn = document.getElementById('loopBtn');
+    const screenshotBtn = document.getElementById('screenshotBtn');
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsPanel = document.getElementById('settingsPanel');
+    const pipBtn = document.getElementById('pipBtn');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    const loopRegion = document.getElementById('loopRegion');
+    const loopStartMarker = document.getElementById('loopStart');
+    const loopEndMarker = document.getElementById('loopEnd');
+    const toastContainer = document.getElementById('toastContainer');
+    const fileNameEl = document.getElementById('fileName');
+    const playlistList = document.getElementById('playlistList');
+    const searchInput = document.getElementById('searchInput');
+    const searchBtn = document.getElementById('searchBtn');
+
+    let isPlaying = false;
+    let loopStart = null;
+    let loopEnd = null;
+    let isSettingLoop = false;
+    let bookmarks = [];
+    let hideControlsTimeout = null;
+    let filters = { brightness: 100, contrast: 100, saturation: 100 };
+    let currentActiveUrl = '';
+
+    function formatTime(seconds) {
+      if (isNaN(seconds) || !isFinite(seconds)) return '0:00';
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    function showToast(message) {
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+      toast.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>${message}`;
+      toastContainer.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    function executeSearch(query) {
+      searchInput.value = query;
+      searchVideos();
+    }
+
+    async function searchVideos() {
+      const query = searchInput.value.trim();
+      if (!query) return;
+      
+      loadingOverlay.style.display = 'flex';
+      playlistList.innerHTML = '<p class="text-xs text-center py-3" style="color: var(--muted);">Mencari...</p>';
+      
+      try {
+        const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`);
+        const json = await res.json();
+        
+        if (json.success && json.data.length > 0) {
+          playlistList.innerHTML = json.data.map((item, index) => `
+            <div class="playlist-item ${currentActiveUrl === item.url ? 'playing' : ''}" onclick="playMedia('${item.url}', '${item.title.replace(/'/g, "\\'")}', this)">
+              <div class="playlist-thumb">
+                <img src="${item.thumbnail}" alt="Thumbnail">
+                <div class="playlist-playing-indicator">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                </div>
+              </div>
+              <div class="playlist-info">
+                <div class="playlist-title">${item.title}</div>
+                <div class="playlist-duration">${item.timestamp}</div>
+              </div>
+            </div>
+          `).join('');
+        } else {
+          playlistList.innerHTML = '<p class="text-xs text-center py-3" style="color: var(--muted);">Tidak ada hasil</p>';
+        }
+      } catch (err) {
+        showToast('Gagal mencari video');
+        playlistList.innerHTML = '<p class="text-xs text-center py-3" style="color: var(--danger);">Terjadi kesalahan server</p>';
+      }
+      loadingOverlay.style.display = 'none';
+    }
+
+    async function playMedia(url, title, element) {
+      document.querySelectorAll('.playlist-item').forEach(el => el.classList.remove('playing'));
+      if(element) element.classList.add('playing');
+      currentActiveUrl = url;
+      
+      loadingOverlay.style.display = 'flex';
+      try {
+        const res = await fetch(`${API_BASE}/play?url=${encodeURIComponent(url)}`);
+        const json = await res.json();
+        
+        if (json.success && json.data.results && json.data.results.length > 0) {
+          const media = json.data.results.find(r => r.type === 'mp4') || json.data.results[0];
+          video.src = media.url;
+          fileNameEl.textContent = title;
+          video.play().catch(() => {});
+          showToast(`Memutar: ${title}`);
+          bookmarks = [];
+          renderBookmarks();
+          clearLoop();
+        } else {
+          showToast('Gagal memproses media');
+        }
+      } catch (err) {
+        showToast('Terjadi kesalahan ekstraksi');
+      }
+      loadingOverlay.style.display = 'none';
+    }
+
+    searchBtn.addEventListener('click', searchVideos);
+    searchInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') searchVideos();
+    });
+
+    function updateVideoFilters() {
+      video.style.filter = `brightness(${filters.brightness}%) contrast(${filters.contrast}%) saturate(${filters.saturation}%)`;
+    }
+
+    function togglePlay() {
+      if (video.paused) video.play();
+      else video.pause();
+    }
+
+    function updatePlayButton() {
+      isPlaying = !video.paused;
+      if (isPlaying) {
+        playIcon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+        centerPlayIcon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+        centerPlay.classList.add('playing');
+        centerPlay.classList.remove('visible');
+      } else {
+        playIcon.innerHTML = '<polygon points="5,3 19,12 5,21"/>';
+        centerPlayIcon.innerHTML = '<polygon points="5,3 19,12 5,21"/>';
+        centerPlay.classList.remove('playing');
+        centerPlay.classList.add('visible');
+      }
+    }
+
+    function updateProgress() {
+      if (video.duration && isFinite(video.duration)) {
+        const percent = (video.currentTime / video.duration) * 100;
+        progressBar.style.width = `${percent}%`;
+        progressHandle.style.left = `${percent}%`;
+        currentTimeEl.textContent = formatTime(video.currentTime);
+        if (loopStart !== null && loopEnd !== null && video.currentTime >= loopEnd) {
+          video.currentTime = loopStart;
+        }
+      }
+    }
+
+    function updateBuffer() {
+      if (video.buffered.length > 0 && video.duration) {
+        const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+        progressBuffer.style.width = `${(bufferedEnd / video.duration) * 100}%`;
+      }
+    }
+
+    function seekVideo(e) {
+      const rect = progressContainer.getBoundingClientRect();
+      const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      if (video.duration && isFinite(video.duration)) video.currentTime = percent * video.duration;
+    }
+
+    function updateVolume(e) {
+      video.volume = e.target.value;
+      updateVolumeIcon();
+      document.getElementById('infoVolume').textContent = `${Math.round(video.volume * 100)}%`;
+    }
+
+    function toggleMute() {
+      video.muted = !video.muted;
+      updateVolumeIcon();
+    }
+
+    function updateVolumeIcon() {
+      if (video.muted || video.volume === 0) {
+        volumeWave1.style.display = 'none';
+        volumeWave2.style.display = 'none';
+      } else if (video.volume < 0.5) {
+        volumeWave1.style.display = 'block';
+        volumeWave2.style.display = 'none';
+      } else {
+        volumeWave1.style.display = 'block';
+        volumeWave2.style.display = 'block';
+      }
+    }
+
+    function skip(seconds) {
+      if (video.duration && isFinite(video.duration)) {
+        video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + seconds));
+      }
+    }
+
+    function toggleSettings() { settingsPanel.classList.toggle('active'); }
+
+    document.getElementById('speedOptions').addEventListener('click', (e) => {
+      if (e.target.classList.contains('option-btn')) {
+        document.querySelectorAll('#speedOptions .option-btn').forEach(btn => btn.classList.remove('selected'));
+        e.target.classList.add('selected');
+        const speed = parseFloat(e.target.dataset.speed);
+        video.playbackRate = speed;
+        document.getElementById('infoSpeed').textContent = `${speed}x`;
+      }
+    });
+
+    document.getElementById('aspectOptions').addEventListener('click', (e) => {
+      if (e.target.classList.contains('option-btn')) {
+        document.querySelectorAll('#aspectOptions .option-btn').forEach(btn => btn.classList.remove('selected'));
+        e.target.classList.add('selected');
+        const ratio = e.target.dataset.aspect;
+        videoWrapper.style.aspectRatio = ratio === 'auto' ? 'auto' : ratio.replace(':', '/');
+      }
+    });
+
+    ['brightness', 'contrast', 'saturation'].forEach(filter => {
+      const input = document.getElementById(filter);
+      const valueEl = document.getElementById(filter + 'Val');
+      input.addEventListener('input', () => {
+        filters[filter] = parseInt(input.value);
+        valueEl.textContent = input.value + '%';
+        updateVideoFilters();
+      });
+    });
+
+    document.getElementById('resetFilters').addEventListener('click', () => {
+      filters = { brightness: 100, contrast: 100, saturation: 100 };
+      ['brightness', 'contrast', 'saturation'].forEach(f => {
+        document.getElementById(f).value = 100;
+        document.getElementById(f + 'Val').textContent = '100%';
+      });
+      updateVideoFilters();
+      showToast('Filters reset');
+    });
+
+    function toggleLoop() {
+      if (!isSettingLoop && loopStart === null) {
+        loopStart = video.currentTime;
+        isSettingLoop = true;
+        loopBtn.classList.add('active');
+        loopStartMarker.style.display = 'block';
+        if (video.duration) loopStartMarker.style.left = `${(loopStart / video.duration) * 100}%`;
+      } else if (isSettingLoop) {
+        loopEnd = video.currentTime;
+        if (loopEnd <= loopStart) return showToast('End must be after start');
+        isSettingLoop = false;
+        loopEndMarker.style.display = 'block';
+        if (video.duration) {
+          loopEndMarker.style.left = `${(loopEnd / video.duration) * 100}%`;
+          loopRegion.style.display = 'block';
+          loopRegion.style.left = `${(loopStart / video.duration) * 100}%`;
+          loopRegion.style.width = `${((loopEnd - loopStart) / video.duration) * 100}%`;
+        }
+      } else {
+        clearLoop();
+      }
+    }
+
+    function clearLoop() {
+      loopStart = null; loopEnd = null; isSettingLoop = false;
+      loopBtn.classList.remove('active');
+      loopStartMarker.style.display = 'none'; loopEndMarker.style.display = 'none'; loopRegion.style.display = 'none';
+    }
+
+    function takeScreenshot() {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640; canvas.height = video.videoHeight || 360;
+      const ctx = canvas.getContext('2d');
+      ctx.filter = video.style.filter || 'none';
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const link = document.createElement('a');
+      link.download = `screenshot-${Date.now()}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      showToast('Screenshot saved');
+    }
+
+    function addBookmark() {
+      const time = video.currentTime;
+      if (bookmarks.some(b => Math.abs(b.time - time) < 1)) return showToast('Bookmark exists');
+      bookmarks.push({ time, id: Date.now() });
+      renderBookmarks();
+      showToast('Bookmark added');
+    }
+
+    function renderBookmarks() {
+      const list = document.getElementById('bookmarksList');
+      if (bookmarks.length === 0) return list.innerHTML = '<p class="text-xs text-center py-3" style="color: var(--muted);">No bookmarks yet</p>';
+      list.innerHTML = bookmarks.sort((a, b) => a.time - b.time).map(b => `
+          <div class="bookmark-item" data-time="${b.time}">
+            <div class="flex items-center gap-2"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span class="bookmark-time">${formatTime(b.time)}</span></div>
+            <button class="bookmark-delete" data-id="${b.id}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+          </div>
+        `).join('');
+      list.querySelectorAll('.bookmark-item').forEach(item => {
+        item.addEventListener('click', (e) => { if (!e.target.closest('.bookmark-delete')) video.currentTime = parseFloat(item.dataset.time); });
+      });
+      list.querySelectorAll('.bookmark-delete').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          bookmarks = bookmarks.filter(b => b.id !== parseInt(btn.dataset.id));
+          renderBookmarks();
+        });
+      });
+    }
+
+    async function togglePiP() {
+      try { document.pictureInPictureElement ? await document.exitPictureInPicture() : await video.requestPictureInPicture(); } catch (err) { showToast('PiP not supported'); }
+    }
+
+    function toggleFullscreen() { document.fullscreenElement ? document.exitFullscreen() : videoContainer.requestFullscreen(); }
+
+    function showControls() {
+      controlsOverlay.classList.add('show');
+      clearTimeout(hideControlsTimeout);
+      if (isPlaying) hideControlsTimeout = setTimeout(() => controlsOverlay.classList.remove('show'), 3000);
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      switch (e.key.toLowerCase()) {
+        case ' ': e.preventDefault(); togglePlay(); break;
+        case 'm': toggleMute(); break;
+        case 'f': toggleFullscreen(); break;
+        case 'arrowleft': skip(-10); break;
+        case 'arrowright': skip(10); break;
+        case 's': takeScreenshot(); break;
+        case 'l': toggleLoop(); break;
+      }
+    });
+
+    video.addEventListener('play', updatePlayButton);
+    video.addEventListener('pause', updatePlayButton);
+    video.addEventListener('timeupdate', updateProgress);
+    video.addEventListener('progress', updateBuffer);
+    video.addEventListener('loadedmetadata', () => {
+      durationEl.textContent = formatTime(video.duration);
+      document.getElementById('infoDuration').textContent = formatTime(video.duration);
+      document.getElementById('infoResolution').textContent = `${video.videoWidth}x${video.videoHeight}`;
+    });
+    video.addEventListener('waiting', () => loadingOverlay.style.display = 'flex');
+    video.addEventListener('canplay', () => loadingOverlay.style.display = 'none');
+
+    playBtn.addEventListener('click', togglePlay);
+    centerPlay.addEventListener('click', togglePlay);
+    muteBtn.addEventListener('click', toggleMute);
+    volumeSlider.addEventListener('input', updateVolume);
+    skipBackBtn.addEventListener('click', () => skip(-10));
+    skipForwardBtn.addEventListener('click', () => skip(10));
+    loopBtn.addEventListener('click', toggleLoop);
+    screenshotBtn.addEventListener('click', takeScreenshot);
+    settingsBtn.addEventListener('click', toggleSettings);
+    pipBtn.addEventListener('click', togglePiP);
+    fullscreenBtn.addEventListener('click', toggleFullscreen);
+    document.getElementById('addBookmark').addEventListener('click', addBookmark);
+    progressContainer.addEventListener('click', seekVideo);
+    progressContainer.addEventListener('mousedown', () => {
+      document.addEventListener('mousemove', seekVideo);
+      document.addEventListener('mouseup', () => document.removeEventListener('mousemove', seekVideo), { once: true });
+    });
+    videoContainer.addEventListener('mousemove', showControls);
+    videoContainer.addEventListener('touchstart', showControls);
+    videoContainer.addEventListener('mouseleave', () => { if (isPlaying) controlsOverlay.classList.remove('show'); });
+    document.addEventListener('click', (e) => { if (!settingsPanel.contains(e.target) && !settingsBtn.contains(e.target)) settingsPanel.classList.remove('active'); });
+    videoWrapper.addEventListener('dblclick', toggleFullscreen);
+    updatePlayButton();
+  </script>
+</body>
+</html>
